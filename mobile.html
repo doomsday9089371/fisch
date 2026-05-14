@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { margin: 0; font-family: Arial; background: #f4f4f4; }
+        #content {
+            padding: 24px;
+            max-width: 720px;
+            margin: 0 auto;
+        }
+        .button-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+        .button-grid button {
+            flex: 1 1 140px;
+            min-width: 140px;
+            padding: 16px;
+            color: white;
+            background: #3a5fc1;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .button-grid button:hover {
+            background: #2f4ea0;
+        }
+        #detail {
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+            padding: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
+        #detail h3 {
+            margin-top: 0;
+        }
+        .back-button {
+            margin-top: 16px;
+            background: #888;
+        }
+    </style>
+</head>
+<body>
+
+<div id="content">
+    <h2>Fishing Workflow</h2>
+    <p>Tap Start to begin the island selection workflow or open the tournament page.</p>
+    <div id="mainButtons" class="button-grid">
+        <button onclick="startIslandFlow()">Start</button>
+        <button onclick="openTournamentPage()">Tournament</button>
+    </div>
+    <div id="detail"></div>
+</div>
+
+<script>
+const BASE_URL = "http://127.0.0.1:5000";
+let currentLetter = null;
+let currentIslandCode = null;
+let currentIslandName = null;
+let currentFishCode = null;
+let currentFishName = null;
+let prefixCount = 0;
+let selectedPrefixes = [];
+
+function renderMessage(message) {
+    document.getElementById("detail").innerHTML = `<p>${message}</p>`;
+}
+
+function renderJson(data) {
+    document.getElementById("detail").innerHTML =
+        `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+}
+
+function renderButtons(title, buttons, showBack = true) {
+    const detail = document.getElementById("detail");
+    detail.innerHTML = `<h3>${title}</h3><div id=\"subButtons\" class=\"button-grid\"></div>`;
+    const grid = document.getElementById("subButtons");
+    buttons.forEach(btn => {
+        const element = document.createElement("button");
+        element.textContent = btn.label;
+        element.onclick = btn.onClick;
+        grid.appendChild(element);
+    });
+    if (showBack) {
+        const back = document.createElement("button");
+        back.textContent = "Back";
+        back.className = "back-button";
+        back.onclick = resetView;
+        grid.appendChild(back);
+    }
+}
+
+function renderError(err) {
+    document.getElementById("detail").innerHTML = `<pre>Error: ${err}</pre>`;
+}
+
+function resetView() {
+    currentLetter = null;
+    document.getElementById("mainButtons").style.display = "flex";
+    document.getElementById("detail").innerHTML = "";
+}
+
+function startIslandFlow() {
+    document.getElementById("mainButtons").style.display = "none";
+    renderMessage("Loading island letters...");
+    fetch(`${BASE_URL}/island_letters`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to load letters.");
+                return;
+            }
+            const buttons = data.groups.map(group => ({
+                label: `${group.letter.toUpperCase()} (${group.count})`,
+                onClick: () => selectLetter(group.letter),
+            }));
+            renderButtons("Choose an island letter", buttons);
+        })
+        .catch(err => renderError(err));
+}
+
+function selectLetter(letter) {
+    currentLetter = letter;
+    renderMessage(`Loading locations for ${letter.toUpperCase()}...`);
+    fetch(`${BASE_URL}/locations/${letter}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to load locations.");
+                return;
+            }
+            const buttons = data.locations.map(loc => ({
+                label: loc.name,
+                onClick: () => selectLocation(letter, loc.code),
+            }));
+            renderButtons(`Locations starting with ${letter.toUpperCase()}`, buttons);
+        })
+        .catch(err => renderError(err));
+}
+
+function selectLocation(letter, islandCode) {
+    renderMessage(`Loading fish for ${letter.toUpperCase()}-${islandCode}...`);
+    fetch(`${BASE_URL}/fish/${letter}/${islandCode}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to load fish.");
+                return;
+            }
+            currentIslandCode = islandCode;
+            currentIslandName = data.island_name;
+            const buttons = data.fish.map(item => ({
+                label: `${item.code} ${item.name}`,
+                onClick: () => selectFish(item.code, item.name),
+            }));
+            renderButtons(`Fish at ${data.island_name}`, buttons);
+        })
+        .catch(err => renderError(err));
+}
+
+function openTournamentPage() {
+    renderMessage("Loading tournament page...");
+    fetch(`${BASE_URL}/tournament`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to load tournament page.");
+                return;
+            }
+            renderButtons(data.page.title, [
+                {
+                    label: data.page.button_label,
+                    onClick: () => joinTournament(),
+                },
+            ], true);
+        })
+        .catch(err => renderError(err));
+}
+
+function joinTournament() {
+    renderMessage("Joining tournament...");
+    fetch(`${BASE_URL}/tournament/join`, { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to join tournament.");
+                return;
+            }
+            renderMessage(data.result.message || "Joined tournament.");
+        })
+        .catch(err => renderError(err));
+}
+
+function selectFish(fishCode, fishName) {
+    currentFishCode = fishCode;
+    currentFishName = fishName;
+    selectedPrefixes = [];
+    prefixCount = 0;
+    renderPrefixCountButtons();
+}
+
+function renderPrefixCountButtons() {
+    const buttons = [1, 2, 3].map(count => ({
+        label: String(count),
+        onClick: () => selectPrefixCount(count),
+    }));
+    renderButtons(`Select number of prefixes for ${currentFishName}`, buttons, true);
+}
+
+function selectPrefixCount(count, reset = true) {
+    prefixCount = count;
+    if (reset) {
+        selectedPrefixes = [];
+    }
+    renderMessage(`Selecting ${count} prefix${count === 1 ? '' : 'es'}...`);
+    fetch(`${BASE_URL}/select_prefix_count/${count}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to select prefix count.");
+                return;
+            }
+            const buttons = data.letters.map(item => ({
+                label: `${item.letter} (${item.count})`,
+                onClick: () => selectMutationLetter(item.letter),
+            }));
+            renderButtons(`Choose mutation letter`, buttons, true);
+        })
+        .catch(err => renderError(err));
+}
+
+function selectMutationLetter(letter) {
+    renderMessage(`Loading mutations for ${letter}...`);
+    fetch(`${BASE_URL}/mutations/${letter}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to load mutations.");
+                return;
+            }
+            const buttons = data.mutations.map(item => ({
+                label: `${item.code}: ${item.name}`,
+                onClick: () => selectPrefixMutation(item.code, item.name),
+            }));
+            renderButtons(`Choose mutation ${selectedPrefixes.length + 1} of ${prefixCount}`, buttons, true);
+        })
+        .catch(err => renderError(err));
+}
+
+function selectPrefixMutation(code, name) {
+    selectedPrefixes.push({code, name});
+    if (selectedPrefixes.length >= prefixCount) {
+        renderWeightKeypad();
+    } else {
+        renderMessage(`Selected: ${selectedPrefixes.map(p => p.name).join(', ')}. Choose ${prefixCount - selectedPrefixes.length} more.`);
+        selectPrefixCount(prefixCount, false);
+    }
+}
+
+function renderWeightKeypad() {
+    let inputValue = "";
+    const detail = document.getElementById("detail");
+    detail.innerHTML = `
+        <h3>Enter weight for ${currentFishName}</h3>
+        <p>Island: ${currentIslandName} (${currentIslandCode})</p>
+        <p>Prefixes: ${selectedPrefixes.map(p => p.name).join(', ') || 'None'}</p>
+        <div id="weightDisplay" style="font-size: 24px; margin-bottom: 16px;">0</div>
+        <div id="keypad" class="button-grid"></div>
+    `;
+    const keypad = document.getElementById("keypad");
+    const keys = ["1","2","3","4","5","6","7","8","9","0",".","Clear","Enter"];
+    keys.forEach(key => {
+        const btn = document.createElement("button");
+        btn.textContent = key;
+        btn.onclick = () => {
+            if (key === "Clear") {
+                inputValue = "";
+            } else if (key === "Enter") {
+                submitWeight(inputValue);
+            } else if (key === ".") {
+                if (!inputValue.includes('.')) inputValue += '.';
+            } else {
+                inputValue += key;
+            }
+            document.getElementById("weightDisplay").textContent = inputValue || '0';
+        };
+        keypad.appendChild(btn);
+    });
+    const back = document.createElement("button");
+    back.textContent = "Back";
+    back.className = "back-button";
+    back.onclick = resetView;
+    keypad.appendChild(back);
+}
+
+function submitWeight(value) {
+    if (!value || isNaN(Number(value))) {
+        renderError("Enter a valid weight before submitting.");
+        return;
+    }
+    const payload = {
+        letter: currentLetter,
+        island_code: currentIslandCode,
+        fish_code: currentFishCode,
+        weight: value,
+        prefix_codes: selectedPrefixes.map(p => p.code),
+        core_code: "000",
+    };
+    renderMessage("Submitting entry...");
+    fetch(`${BASE_URL}/submit_entry`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status !== "ok") {
+                renderError(data.detail || "Unable to submit entry.");
+                return;
+            }
+            renderMessage(`Entry saved successfully. Tap Start to add another.`);
+            resetView();
+        })
+        .catch(err => renderError(err));
+}
+</script>
+
+</body>
+</html>
