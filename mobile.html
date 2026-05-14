@@ -58,7 +58,7 @@
 </div>
 
 <script>
-const BASE_URL = "http://127.0.0.1:5000";
+const BASE_URL = "https://mama-achiness-upward.ngrok-free.app/api/some_route";
 let currentLetter = null;
 let currentIslandCode = null;
 let currentIslandName = null;
@@ -66,7 +66,6 @@ let currentFishCode = null;
 let currentFishName = null;
 let prefixCount = 0;
 let selectedPrefixes = [];
-fetch("https://mama-achiness-upward.ngrok-free.app/api/some_route")
 
 function renderMessage(message) {
     document.getElementById("detail").innerHTML = `<p>${message}</p>`;
